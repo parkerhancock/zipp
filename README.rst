@@ -21,7 +21,7 @@
    :target: https://blog.jaraco.com/skeleton
 
 
-.. warning:
+.. warning::
    This is a personalized version of the zipp package. The original package can be found
    at `zipp <https://github.com/jaraco/zipp>`_.
 

@@ -61,6 +61,39 @@ def _difference(minuend, subtrahend):
     """
     return itertools.filterfalse(set(subtrahend).__contains__, minuend)
 
+class PickleableClass():
+    """
+    Utility object that wraps another un-pickleable object that, 
+    for example, might hold a file object, and saves the 
+    initialization parameters. When pickeled, the un-pickleable
+    object is discarded, and when loaded, it is rebuilt from the
+    initialization params."""
+    _class = object
+
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+        self._obj = None
+
+    def __getattr__(self, name):
+        if self._obj is None:
+            self._obj = self._class(*self._args, **self._kwargs)
+        return getattr(self._obj, name)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['_obj'] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(class={self._class}, args={self._args}, kwargs={self._kwargs})"
+
+    def __eq__(self, other):
+        return self._class == other._class and self._args == other._args and self._kwargs == other._kwargs
+
 
 class CompleteDirs(zipfile.ZipFile):
     """
@@ -128,6 +161,13 @@ class FastLookup(CompleteDirs):
             return self.__lookup
         self.__lookup = super(FastLookup, self)._name_set()
         return self.__lookup
+
+class PickleableFastLookup(PickleableClass):
+    _class = FastLookup
+
+    @property
+    def filename(self):
+        return self._args[0]
 
 
 class Path:
@@ -220,8 +260,31 @@ class Path:
         original type, the caller should either create a
         separate ZipFile object or pass a filename.
         """
-        self.root = FastLookup.make(root)
+        self.root = self._make_root(root)
         self.at = at
+
+    def _make_root(self, source):
+        """
+        Given a source (filename or zipfile), return an
+        appropriate root object.
+        """
+        if isinstance(source, CompleteDirs):
+            return source
+
+        if isinstance(source, (str, pathlib.Path)):
+            return PickleableFastLookup(source)
+
+        if not isinstance(source, zipfile.ZipFile):
+            return FastLookup(source)
+
+        # Only allow for FastLookup when supplied zipfile is read-only
+        if 'r' not in source.mode:
+            subcls = CompleteDirs
+        else:
+            subcls = FastLookup
+
+        source.__class__ = subcls
+        return source
 
     def open(self, mode='r', *args, pwd=None, **kwargs):
         """
